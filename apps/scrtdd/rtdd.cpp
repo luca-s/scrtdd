@@ -2117,7 +2117,7 @@ std::vector<DataModel::OriginPtr> RTDD::fetchOrigins(const std::string &idFile,
     throw runtime_error("--dump-catalog-options format is: "
                         "type,evalmode,includeCreator,excludeCreator,profile");
   }
-  string type           = tokens[0]; // preferred, last, first
+  string type           = tokens[0]; // preferred, last, first, bestscore
   string evalmode       = tokens[1]; // any, onlyManual, onlyAutomatic
   string includeCreator = tokens[2]; // any or a author/methodID
   string excludeCreator = tokens[3]; // none  or a author/methodID
@@ -2143,10 +2143,11 @@ std::vector<DataModel::OriginPtr> RTDD::fetchOrigins(const std::string &idFile,
   if (type == "preferred") SEISCOMP_INFO("* PREFERRED only");
   if (type == "first") SEISCOMP_INFO("* arrived FIRST");
   if (type == "last") SEISCOMP_INFO("* arrived LAST");
+  if (type == "bestscore") SEISCOMP_INFO("* with BEST SCORE");
   if (automaticOnly) SEISCOMP_INFO("* AUTOMATIC only");
   if (manualOnly) SEISCOMP_INFO("* MANUAL only");
   if (includeCreator != "any")
-    SEISCOMP_INFO("* whose author or methodID starts with %s",
+    SEISCOMP_INFO("* ONLY origins whose author or methodID starts with %s",
                   includeCreator.c_str());
   if (excludeCreator != "none")
     SEISCOMP_INFO("* EXCLUDING origins whose author or methodID starts with %s",
@@ -2188,6 +2189,7 @@ std::vector<DataModel::OriginPtr> RTDD::fetchOrigins(const std::string &idFile,
         }
 
         Core::Time creationTime;
+        double bestScore = 1.;
         for (DataModel::OriginPtr tmpOrg : eventOrigins)
         {
           if (!tmpOrg) continue;
@@ -2218,6 +2220,28 @@ std::vector<DataModel::OriginPtr> RTDD::fetchOrigins(const std::string &idFile,
               (tmpOrg->creationInfo().creationTime() > creationTime))
             continue;
 
+          double currScore = 1;
+          if (type == "bestscore")
+          {
+            query()->loadComments(tmpOrg.get());
+            for (size_t i = 0; i < tmpOrg->commentCount(); i++)
+            {
+              DataModel::Comment *comment = tmpOrg->comment(i);
+              if (comment->id() ==
+                  "smi:ch.ethz.sed/originquality/quality.evscore")
+              {
+                currScore = std::stod(comment->text());
+                break;
+              }
+            }
+
+            if (currScore > 0 || (bestScore <= 0 && currScore <= bestScore))
+              continue;
+            // SEISCOMP_INFO("Best score %f currScore %f  author %s",
+            //        bestScore, currScore,
+            //        tmpOrg->creationInfo().author().c_str());
+          }
+
           if (profile)
           {
             double latitude, longitude;
@@ -2236,6 +2260,7 @@ std::vector<DataModel::OriginPtr> RTDD::fetchOrigins(const std::string &idFile,
 
           org          = tmpOrg;
           creationTime = org->creationInfo().creationTime();
+          bestScore    = currScore;
         }
       }
     }
